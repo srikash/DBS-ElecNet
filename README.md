@@ -16,7 +16,7 @@ Poster available at: [https://zenodo.org/records/19430997](https://zenodo.org/re
 
 ### Python
 
-- Python 3.9+
+- Python 3.12+ (raised by SALINE's own requirement)
 - Install Python dependencies:
 
 ```bash
