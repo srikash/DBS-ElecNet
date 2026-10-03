@@ -1,22 +1,49 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+ckpt_path="${script_dir}/ckpt/unet_epoch_200.pth"
+# shellcheck source=utils/docker_tools.sh
+source "${script_dir}/utils/docker_tools.sh"
+
 # ============================
 # Usage
 # ============================
-if [[ $# -ne 2 ]]; then
-    echo "Usage: $0 <nifti_file> <device>"
+usage() {
+    echo "Usage: $0 <nifti_file> <device> [--brain_mask PATH]"
     echo "Examples:"
     echo "  $0 subject.nii.gz cuda:0"
     echo "  $0 subject.nii.gz cpu"
+    echo
+    echo "By default, skull-stripping (SynthStrip) is run via Docker. If Docker"
+    echo "isn't available, pass --brain_mask with your own precomputed mask"
+    echo "instead -- it must already be in the same 1mm-isotropic space as"
+    echo "<nifti_file>_1mm_iso.nii.gz."
+}
+
+if [[ $# -lt 2 ]]; then
+    usage
     exit 1
 fi
 
 nifti_file="$1"
 device="$2"
+shift 2
 
-script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-ckpt_path="${script_dir}/ckpt/unet_epoch_200.pth"
+brain_mask_input=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --brain_mask)
+            brain_mask_input="$2"
+            shift 2
+            ;;
+        *)
+            echo "Error: unknown argument: $1"
+            usage
+            exit 1
+            ;;
+    esac
+done
 
 # ============================
 # Validate inputs
@@ -26,12 +53,17 @@ if [[ ! -f "$nifti_file" ]]; then
     exit 1
 fi
 
+if [[ -n "$brain_mask_input" && ! -f "$brain_mask_input" ]]; then
+    echo "Error: file not found: $brain_mask_input"
+    exit 1
+fi
+
 base="${nifti_file%.nii*}"
 
 # ============================
 # Get original size
 # ============================
-orig_size=$(python3 utils/get_size.py --input "$nifti_file")
+orig_size=$(python3 "${script_dir}/utils/get_size.py" --input "$nifti_file")
 echo "Original size: $orig_size"
 
 # ============================
@@ -40,11 +72,25 @@ echo "Original size: $orig_size"
 echo "Resampling to 1mm isotropic..."
 ResampleImage 3 "$nifti_file" "${base}_1mm_iso.nii.gz" 1.0x1.0x1.0 0 3['l']
 
-echo "Running SynthStrip..."
-mri_synthstrip \
-    -i "${base}_1mm_iso.nii.gz" \
-    -m "${base}_1mm_iso_brain_mask.nii.gz" \
-    -o "${base}_1mm_iso_skull_striped.nii.gz"
+# ============================
+# Skull stripping (SynthStrip)
+# ============================
+if [[ -n "$brain_mask_input" ]]; then
+    echo "Using provided brain mask: $brain_mask_input"
+    cp "$brain_mask_input" "${base}_1mm_iso_brain_mask.nii.gz"
+    ImageMath 3 "${base}_1mm_iso_skull_striped.nii.gz" m \
+        "${base}_1mm_iso.nii.gz" "${base}_1mm_iso_brain_mask.nii.gz"
+elif docker_available; then
+    echo "Running SynthStrip (Docker: ${SYNTHSTRIP_DOCKER_IMAGE})..."
+    run_synthstrip_docker \
+        "${base}_1mm_iso.nii.gz" \
+        "${base}_1mm_iso_skull_striped.nii.gz" \
+        "${base}_1mm_iso_brain_mask.nii.gz"
+else
+    echo "Error: Docker isn't available, and no --brain_mask was provided."
+    echo "Install Docker, or pass --brain_mask with a precomputed brain mask."
+    exit 1
+fi
 
 echo "N4 bias correction..."
 N4BiasFieldCorrection -d 3 \
@@ -56,7 +102,7 @@ N4BiasFieldCorrection -d 3 \
 # Run ElecNet
 # ============================
 echo "Running ElecNet on device: $device"
-python3 ElecNet/inference.py \
+python3 "${script_dir}/ElecNet/inference.py" \
     --input "${base}_1mm_iso_skull_striped_n4.nii.gz" \
     --ckpt_path "$ckpt_path" \
     --device "$device"

@@ -27,10 +27,19 @@ This also installs [SALINE](https://github.com/srikash/SALINE) and its `saline` 
 
 ### External command-line tools
 
-The `run_saline` and `run_elecnet` scripts call external neuroimaging tools that must be available on your `PATH`:
+**ANTs** (`ResampleImage`, `N4BiasFieldCorrection`, `ImageMath`) must be on your `PATH`.
 
-- **ANTs** (`ResampleImage`, `N4BiasFieldCorrection`)
-- **FreeSurfer / SynthStrip / SynthSeg** (`mri_synthstrip`, `mri_synthseg`)
+Skull-stripping (SynthStrip) and segmentation (SynthSeg) run via **Docker** by
+default — no local FreeSurfer install needed:
+
+- [`freesurfer/synthstrip`](https://hub.docker.com/r/freesurfer/synthstrip)
+- [`cookpa/synthseg`](https://hub.docker.com/r/cookpa/synthseg)
+
+`run_saline` and `run_elecnet` check for Docker automatically. If it isn't
+available, pass precomputed files instead with `--brain_mask PATH` (both
+scripts) and `--synthseg PATH` (`run_saline` only) — these must already be in
+the same 1mm-isotropic space as `subject_1mm_iso.nii.gz`, i.e. produced from
+that resampled file, not the original native-space input.
 
 ## SALINE electrode segmentation:
 
@@ -38,13 +47,18 @@ This pipeline performs single- or dual-electrode localization using the SALINE f
 
 **Command:**
 ```bash
-./run_saline <nifti_file> <num_elec>
+./run_saline <nifti_file> <num_elec> [--brain_mask PATH] [--synthseg PATH]
 ```
 **Required arguments:**
 
 * `nifti_file`: Path to the input MRI volume (NIfTI format).
 
 * `num_elec`: Number of implanted electrodes (1 or 2).
+
+**Optional arguments:**
+
+* `--brain_mask`: precomputed brain mask, skips Docker-based SynthStrip.
+* `--synthseg`: precomputed SynthSeg segmentation, skips Docker-based SynthSeg.
 
 **Output:**
 
@@ -61,13 +75,17 @@ This pipeline performs electrode segmentation using DBS-ElecNet.
 
 **Command:**
 ```bash 
-./run_elecnet <nifti_file> <device>
+./run_elecnet <nifti_file> <device> [--brain_mask PATH]
 ```
 **Required arguments:**
 
 * `nifti_file`: Path to the input MRI volume (NIfTI format).
 
 * `device`: Inference device, following PyTorch conventions (cpu, cuda, cuda:0, etc.).
+
+**Optional arguments:**
+
+* `--brain_mask`: precomputed brain mask, skips Docker-based SynthStrip.
 
 **Output:**
 
@@ -79,6 +97,6 @@ This pipeline performs electrode segmentation using DBS-ElecNet.
 
 ## Note:
 
-- All preprocessing steps are performed automatically, including resampling to 1 mm isotropic resolution, skull stripping, N4 bias field correction, and (for SALINE) SynthSeg.  
+- All preprocessing steps are performed automatically, including resampling to 1 mm isotropic resolution, skull stripping (Docker), N4 bias field correction, and (for SALINE) SynthSeg (Docker).  
 - Intermediate files are removed upon completion **except for the 1 mm isotropic resampled MRI** (`subject_1mm_iso.nii.gz`), which is retained for reference.  
 - Final outputs are provided in **both 1 mm isotropic space and the original native image space**.
