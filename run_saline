@@ -62,13 +62,13 @@ mri_synthseg \
 # ----------------------------
 if [[ "$num_elec" -eq 2 ]]; then
     echo "Running SALINE (dual electrode)..."
-    python3 SALINE/elec_seg.py \
+    saline \
         --input "${base}_1mm_iso_skull_striped_n4.nii.gz" \
         --br_mask "${base}_1mm_iso_brain_mask.nii.gz" \
         --synthseg "${base}_1mm_iso_skull_striped_n4_seg.nii.gz"
 else
     echo "Running SALINE (single electrode)..."
-    python3 SALINE/elec_seg_single.py \
+    saline single \
         --input "${base}_1mm_iso_skull_striped_n4.nii.gz" \
         --br_mask "${base}_1mm_iso_brain_mask.nii.gz" \
         --synthseg "${base}_1mm_iso_skull_striped_n4_seg.nii.gz"

@@ -23,6 +23,8 @@ Poster available at: [https://zenodo.org/records/19430997](https://zenodo.org/re
 python3 -m pip install -r requirements.txt
 ```
 
+This also installs [SALINE](https://github.com/srikash/SALINE) and its `saline` CLI, which `run_saline` calls.
+
 ### External command-line tools
 
 The `run_saline` and `run_elecnet` scripts call external neuroimaging tools that must be available on your `PATH`:
