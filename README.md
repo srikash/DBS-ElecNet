@@ -27,19 +27,18 @@ This also installs [SALINE](https://github.com/srikash/SALINE) and its `saline` 
 
 ### External command-line tools
 
-**ANTs** (`ResampleImage`, `N4BiasFieldCorrection`, `ImageMath`) must be on your `PATH`.
+`run_saline` delegates its entire pipeline to the installed `saline` CLI
+(resampling, SynthStrip, N4, SynthSeg, segmentation), so it needs nothing on
+`PATH` itself. `saline` prefers **Docker** for SynthStrip/SynthSeg/ANTs,
+pulling images automatically; see [SALINE's own README](https://github.com/srikash/SALINE#install)
+for its no-Docker fallback.
 
-Skull-stripping (SynthStrip) and segmentation (SynthSeg) run via **Docker** by
-default — no local FreeSurfer install needed:
+`run_elecnet` does its own preprocessing and needs:
 
-- [`freesurfer/synthstrip`](https://hub.docker.com/r/freesurfer/synthstrip)
-- [`cookpa/synthseg`](https://hub.docker.com/r/cookpa/synthseg)
-
-`run_saline` and `run_elecnet` check for Docker automatically. If it isn't
-available, pass precomputed files instead with `--brain_mask PATH` (both
-scripts) and `--synthseg PATH` (`run_saline` only) — these must already be in
-the same 1mm-isotropic space as `subject_1mm_iso.nii.gz`, i.e. produced from
-that resampled file, not the original native-space input.
+- **ANTs** (`ResampleImage`, `N4BiasFieldCorrection`) on your `PATH`.
+- **Docker**, for skull-stripping via [`freesurfer/synthstrip`](https://hub.docker.com/r/freesurfer/synthstrip).
+  If Docker isn't available, pass `--brain_mask PATH` with a precomputed mask
+  instead, already in the same 1mm-isotropic space as `subject_1mm_iso.nii.gz`.
 
 ## SALINE electrode segmentation:
 
@@ -62,11 +61,11 @@ This pipeline performs single- or dual-electrode localization using the SALINE f
 
 **Output:**
 
-* `subject_saline_elec.nii.gz`: Electrode segmentation in the native image space.
+* `subject_saline_elecSeg.nii.gz`: Electrode segmentation in the native image space.
 
 * `subject_1mm_iso.nii.gz`: Input MRI resampled to 1 mm isotropic resolution.
 
-* `subject_1mm_iso_saline_elec.nii.gz`: Electrode segmentation in 1 mm isotropic space.
+* `subject_1mm_iso_saline_elecSeg.nii.gz`: Electrode segmentation in 1 mm isotropic space.
 
 
 ## DBS-ElecNet Inference:
@@ -97,6 +96,6 @@ This pipeline performs electrode segmentation using DBS-ElecNet.
 
 ## Note:
 
-- All preprocessing steps are performed automatically, including resampling to 1 mm isotropic resolution, skull stripping (Docker), N4 bias field correction, and (for SALINE) SynthSeg (Docker).  
+- All preprocessing is performed automatically.  
 - Intermediate files are removed upon completion **except for the 1 mm isotropic resampled MRI** (`subject_1mm_iso.nii.gz`), which is retained for reference.  
 - Final outputs are provided in **both 1 mm isotropic space and the original native image space**.

@@ -1,20 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-# shellcheck source=utils/docker_tools.sh
-source "${script_dir}/utils/docker_tools.sh"
-
 # ============================
 # Usage
 # ============================
 usage() {
     echo "Usage: $0 <nifti_file> <num_elec (1 or 2)> [--brain_mask PATH] [--synthseg PATH]"
     echo
-    echo "By default, skull-stripping (SynthStrip) and segmentation (SynthSeg) are"
-    echo "run via Docker. If Docker isn't available, pass --brain_mask and/or"
-    echo "--synthseg with your own precomputed files instead -- they must already"
-    echo "be in the same 1mm-isotropic space as <nifti_file>_1mm_iso.nii.gz."
+    echo "A thin wrapper around the installed 'saline' CLI (saline-dbs on PyPI)."
+    echo "SALINE handles the whole pipeline itself -- resampling, skull-stripping"
+    echo "(SynthStrip), N4 bias correction, and segmentation (SynthSeg), all via"
+    echo "Docker by default. If Docker isn't available, pass --brain_mask and/or"
+    echo "--synthseg with your own precomputed files instead."
 }
 
 if [[ $# -lt 2 ]]; then
@@ -26,16 +23,11 @@ nifti_file="$1"
 num_elec="$2"
 shift 2
 
-brain_mask_input=""
-synthseg_input=""
+extra_args=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --brain_mask)
-            brain_mask_input="$2"
-            shift 2
-            ;;
-        --synthseg)
-            synthseg_input="$2"
+        --brain_mask|--synthseg)
+            extra_args+=("$1" "$2")
             shift 2
             ;;
         *)
@@ -59,110 +51,11 @@ if [[ "$num_elec" != "1" && "$num_elec" != "2" ]]; then
     exit 1
 fi
 
-if [[ -n "$brain_mask_input" && ! -f "$brain_mask_input" ]]; then
-    echo "Error: file not found: $brain_mask_input"
-    exit 1
-fi
-
-if [[ -n "$synthseg_input" && ! -f "$synthseg_input" ]]; then
-    echo "Error: file not found: $synthseg_input"
-    exit 1
-fi
-
-base="${nifti_file%.nii*}"
-
 # ============================
-# Get original size
-# ============================
-orig_size=$(python3 "${script_dir}/utils/get_size.py" --input "$nifti_file")
-echo "Original size: $orig_size"
-
-# ============================
-# Preprocessing
-# ============================
-echo "Resampling to 1mm isotropic..."
-ResampleImage 3 "$nifti_file" "${base}_1mm_iso.nii.gz" 1.0x1.0x1.0 0 3['l']
-
-# ============================
-# Skull stripping (SynthStrip)
-# ============================
-if [[ -n "$brain_mask_input" ]]; then
-    echo "Using provided brain mask: $brain_mask_input"
-    cp "$brain_mask_input" "${base}_1mm_iso_brain_mask.nii.gz"
-    ImageMath 3 "${base}_1mm_iso_skull_striped.nii.gz" m \
-        "${base}_1mm_iso.nii.gz" "${base}_1mm_iso_brain_mask.nii.gz"
-elif docker_available; then
-    echo "Running SynthStrip (Docker: ${SYNTHSTRIP_DOCKER_IMAGE})..."
-    run_synthstrip_docker \
-        "${base}_1mm_iso.nii.gz" \
-        "${base}_1mm_iso_skull_striped.nii.gz" \
-        "${base}_1mm_iso_brain_mask.nii.gz"
-else
-    echo "Error: Docker isn't available, and no --brain_mask was provided."
-    echo "Install Docker, or pass --brain_mask with a precomputed brain mask."
-    exit 1
-fi
-
-# ============================
-# N4 bias correction
-# ============================
-echo "N4 bias correction..."
-N4BiasFieldCorrection -d 3 \
-    -x "${base}_1mm_iso_brain_mask.nii.gz" \
-    -i "${base}_1mm_iso_skull_striped.nii.gz" \
-    -o "${base}_1mm_iso_skull_striped_n4.nii.gz"
-
-# ============================
-# Segmentation (SynthSeg)
-# ============================
-if [[ -n "$synthseg_input" ]]; then
-    echo "Using provided SynthSeg segmentation: $synthseg_input"
-    cp "$synthseg_input" "${base}_1mm_iso_skull_striped_n4_seg.nii.gz"
-elif docker_available; then
-    echo "Running SynthSeg (Docker: ${SYNTHSEG_DOCKER_IMAGE})..."
-    run_synthseg_docker \
-        "${base}_1mm_iso_skull_striped_n4.nii.gz" \
-        "${base}_1mm_iso_skull_striped_n4_seg.nii.gz"
-else
-    echo "Error: Docker isn't available, and no --synthseg was provided."
-    echo "Install Docker, or pass --synthseg with a precomputed segmentation."
-    exit 1
-fi
-
-# ----------------------------
 # Run SALINE
-# ----------------------------
+# ============================
 if [[ "$num_elec" -eq 2 ]]; then
-    echo "Running SALINE (dual electrode)..."
-    saline \
-        --input "${base}_1mm_iso_skull_striped_n4.nii.gz" \
-        --br_mask "${base}_1mm_iso_brain_mask.nii.gz" \
-        --synthseg "${base}_1mm_iso_skull_striped_n4_seg.nii.gz"
+    saline --input "$nifti_file" "${extra_args[@]+"${extra_args[@]}"}"
 else
-    echo "Running SALINE (single electrode)..."
-    saline single \
-        --input "${base}_1mm_iso_skull_striped_n4.nii.gz" \
-        --br_mask "${base}_1mm_iso_brain_mask.nii.gz" \
-        --synthseg "${base}_1mm_iso_skull_striped_n4_seg.nii.gz"
+    saline single --input "$nifti_file" "${extra_args[@]+"${extra_args[@]}"}"
 fi
-
-# ----------------------------
-# Cleanup
-# ----------------------------
-echo "Cleaning intermediate files..."
-rm -f \
-    "${base}_1mm_iso_skull_striped.nii.gz" \
-    "${base}_1mm_iso_brain_mask.nii.gz" \
-    "${base}_1mm_iso_skull_striped_n4.nii.gz" \
-    "${base}_1mm_iso_skull_striped_n4_seg.nii.gz"
-
-# ----------------------------
-# Resample back to native size
-# ----------------------------
-echo "Resampling result back to native space..."
-ResampleImage 3 \
-    "${base}_1mm_iso_saline_elec.nii.gz" \
-    "${base}_saline_elec.nii.gz" \
-    "$orig_size" 1 1
-
-echo "Done."
