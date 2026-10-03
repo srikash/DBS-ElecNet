@@ -6,4 +6,4 @@ scikit-learn==1.7.2
 tqdm==4.67.1
 torch==2.9.1
 torchio==0.21.0
-saline-dbs @ git+https://github.com/srikash/SALINE.git@v0.2.0
+saline-dbs @ git+https://github.com/srikash/SALINE.git@v0.2.1
